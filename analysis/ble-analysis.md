@@ -68,7 +68,7 @@ FIXME
 #### 74 Read GATT Characteristic Declaration `0x0034-0x0039`
 
 - Service `0c 46 be af 9c 22 48 ff ae 0e c6 ea e1 a2 f4 e5`
-  - `0x0036` `0c 46 be b0 9c 22 48 ff ae 0e c6 ea e1 a2 f4 e5` (Read)
+  - `0x0036` `0c 46 be b0 9c 22 48 ff ae 0e c6 ea e1 a2 f4 e5` (Notify)
 
 #### 77 Read GATT Characteristic Declaration `0x0037-0x0039`
 
@@ -200,3 +200,75 @@ Use case:
 | 1939 | | `0c 01 00 02 03 32 00 18 00 00 03` |
 | 1952 | | `0c 01 00 02 02 32 00 1c 00 00 03` |
 | 1960 | | `0c 01 00 02 01 32 00 21 00 00 03` |
+
+
+### Changing shifting profile 
+
+_File:_ `change-zhram-dreamy-shifting.pcapng`
+
+_Use case:_
+- App connected
+- Shifting profile 2x12. Front 50/34 (`0x32`/`0x22`), Rear 10-33 (`0x0a`-`0x21`)
+- Mode: External
+- Change to dream drive profile: 50 wide, left buttons jump by 3 gears
+- Shift 4x down and back up cassette in small ring
+- Shift 3x up and down with left hand
+
+| Event | Sent | Received | Remarks
+|-------|------|----------| -------
+|   567 | `0b 00 01 02 05 03 04 05 01 02 03 04 01 02 03 04 00` | | |
+| 568 | | `0b 00 01 02 05 03 04 05 01 02 03 04 01 02 03 04 00` | |
+|  | | `fd 04` | |
+|   571 | `0c 00 02` | `0c 01 00 01 01 22 00 21 00 00 03` | |
+|   572 | `10 00 01` | `0c 01 00 01 01 22 00 21 00 00 03` | |
+| 575 | | `10 00 01` | |
+|  | | `fd 04` | |
+|  | | `0c 01 00 01 01 22 00 21 00 00 03` | |
+|   577 | `0c 00 02` | | |
+|   580 | | `0c 01 00 01 01 22 00 21 00 00 03` | |
+|   584 | `05 01 c8 00 01` | | `c8` = 200 |
+| 585 | | `05 01 c8 00 01` | |
+|  | | `fd 04` | |
+|   588 | `0c 02 00 02 01 32 1a 01 03 64 00` | `0c 01 00 01 01 22 00 21 00 00 03` | Setting up the dream drive profile. It seems that `02` in bit 3 indicates dream drive; `01` in bit 4 is one chainring, `32` in bit 5 is 50 cogs. Unsure about the rest, but the `64` (= 100 decimal) is interesting. `03` could be how many gears the left shifter (FD) skips |
+|   592 | | `0c 02 01 02 01 32 1a 01 03 64 00` | |
+|   593 | `0c 00 02` | | |
+|   599 | | `0c 01 02 01 01 22 00 21 00 01 03` | |
+|   600 | `0c 03 f4 01 4f 02 ab 02 07 03 63 03 bf 03 1b 04 76 04` | | Setting up the dream drive gears. Gears are numbers from 500 (`01 f4`) to 5000 (`13 88`) | 
+|  | `0c 03 d2 04 2e 05 8a 05 e6 05 42 06 9d 06 f9 06 55 07 b1 07` | | | 
+|  | `0c 03 0d 08 69 08 c4 08 20 09 7c 09 d8 09 34 0a 90 0a eb 0a` | | | 
+|  | `0c 03 47 0b a3 0b ff 0b 5b 0c b7 0c 12 0d 6e 0d ca 0d 26 0e` | | | 
+|  | `0c 03 82 0e de 0e 39 0f 95 0f f1 0f 4d 10 a9 10 05 11 60 11` | | | 
+|  | `0c 03 bc 11 18 12 74 12 d0 12 2c 13 88 13` | | | 
+| 611 | `0c 02 0b 02 01 32 1a 01 03 64 00` | | |
+| 612 | | `0c 02 0c 02 01 32 1a 01 03 64 00` | |
+| 614 | `fd 00` | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+| 616 | | `fd 01` | |
+| 619 | `03 01 4c 1d 00 00` | `fd 03` | `1d 4c` = 7500|
+|  | | `fd 04` | |
+|  | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+|  | | `03 01 4c 1d 00 00` | |
+|  | | `fd 04` | |
+| 620 | `0c 00 02` | | |
+| 623 | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+|     | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+|     | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+| 624 | `0c 00 02` | | |
+| 627 | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+|  637 | `0c 00 02` | | |
+|  640 | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+|  797 | | `0c 01 02 01 02 4f 02 00 00 00 00` | Shift one step down. bit 4 goes to 2. 5 and 6 match the number for the second gear in the `0c 03` setup sequence: `4f 02`|
+|  848 | | `0c 01 02 01 03 ab 02 00 00 00 00` | Another step down. Bit 4 goes up to 3. 5 and 6 match  `ab 02`|
+|  880 | | `0c 01 02 01 04 07 03 00 00 00 00` | One more.  |
+|  987 | | `0c 01 02 01 03 ab 02 00 00 00 00` | Back up |
+| 1092 | | `0c 01 02 01 02 4f 02 00 00 00 00` | |
+| 1221 | | `0c 01 02 01 01 f4 01 00 00 00 00` | |
+| 1343 | | `0c 01 02 01 04 07 03 00 00 00 00` | Shift down 3 steps |
+| 1377 | | `0c 01 02 01 07 1b 04 00 00 00 00` | And three more |
+| 1430 | | `0c 01 02 01 04 07 03 00 00 00 00` | Thee back up |
+| 1468 | | `0c 01 02 01 01 f4 01 00 00 00 00` | Back home |
+
+
+
+
+
+
