@@ -1,13 +1,10 @@
-import logging
 import queue
-import random
 import sys
 import threading
 import time
 
 from typing import Union
 
-import _bleio
 from adafruit_ble.services import Service
 from adafruit_ble.uuid import VendorUUID
 from adafruit_ble.characteristics import Characteristic, ComplexCharacteristic
@@ -17,10 +14,10 @@ from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
 from adafruit_ble.services.standard.device_info import DeviceInfoService
 from adafruit_ble_cycling_speed_and_cadence import CyclingSpeedAndCadenceService
 
-from PySide2.QtWidgets import (QApplication, QLabel, QPushButton,
-                               QVBoxLayout, QWidget)
+from PySide2.QtWidgets import (QAction, QApplication, QLabel, QPushButton,
+                               QVBoxLayout, QWidget, QMainWindow, QSizePolicy)
 from PySide2.QtCore import QObject, Signal, Slot, Qt, QRect, QPoint
-from PySide2.QtGui import QFont, QPaintEvent, QPainterPath, QPainter, QPen, QBrush
+from PySide2.QtGui import QFont, QPaintEvent, QPainterPath, QPainter, QPen, QBrush, QKeySequence
 
 Buf = Union[bytes, bytearray, memoryview]
 
@@ -66,8 +63,11 @@ class StatusQueue:
         except queue.Full:
             return
 
-    def get(self, wait=True):
-        return self._queue.get(wait, None)
+    def get(self, block=True, timeout=None):
+        try:
+            return self._queue.get(block, timeout)
+        except queue.Empty:
+            return None
 
 
 class _SB20Notification(ComplexCharacteristic):
@@ -98,11 +98,6 @@ def hex(*values):
     return ", ".join([_hex(value) for value in values])
 
 
-class GearNotification(QObject):
-    gears_changed = Signal(str)
-    status_message = Signal(str)
-
-
 class SB20Service(Service):
     """
         Service for monitoring Stages SB20 status
@@ -115,37 +110,32 @@ class SB20Service(Service):
     def __init__(self, *args, **kwargs):
         super(SB20Service, self).__init__(*args, **kwargs)
         self.connection = None
-        self.current_chainring = (1, 34)
-        self.current_cog = (1, 33)
+        self.suspend = False
+        self.model = None
 
-    def status(self):
-        buf = self._status.get()
-        if len(buf) > 0:
+    def status(self, block=True, timeout=None):
+        buf = self._status.get(block, timeout)
+        if buf is not None and len(buf) > 0:
             if buf[:3] == b'\x0c\01\00' and len(buf) >= 8:
-                self.current_chainring = (buf[3], buf[5])
-                self.current_cog = (buf[4], buf[7])
-                self.gears.gears_changed.emit("foo")
+                self.model.update_gears(buf[3], buf[5], buf[4], buf[7])
             return buf
         return None
 
     def status_message(self, msg):
-        self.gears.status_message.emit(msg)
+        if self.model is not None:
+            self.model.update_status(msg)
 
-    def __call__(self):
+    def run(self):
         self.bootstrap()
         self.status_message("Service bootstrapped")
         self.suspend = False
         while not self.suspend:
-            status = self.status()
-            time.sleep(0.1)
+            status = self.status(True, 0.1)
         self.connection.disconnect()
+        self.model.update_gears(0, 0, 0, 0)
         self.status_message("Disconnected")
 
-    def run(self):
-        t = threading.Thread(target=self, daemon=True)
-        t.start()
-
-    def disconnect(self):
+    def disconnect_service(self):
         self.suspend = True
 
     def expect(self, *values):
@@ -159,7 +149,7 @@ class SB20Service(Service):
                     if status[:len(v)] == v:
                         return True
                 self.status_message("Discarding {0}".format(hex(status)))
-            time.sleep(1)
+            time.sleep(0.1)
         return False
 
     def challenge(self, challenge, *resp):
@@ -168,15 +158,11 @@ class SB20Service(Service):
         if not self.expect(*resp):
             raise Exception("Expected %s after %s" % (hex(*resp), hex(challenge)))
 
-    def display(self):
-        return "Chainring {0} ({1}) Cog {2} ({3})".format(self.current_chainring[0], self.current_chainring[1],
-                                                          self.current_cog[0], self.current_cog[1])
-
     @classmethod
-    def connect(cls, notifier):
+    def connect_service(cls, model):
 
         def update_status(msg):
-            notifier.status_message.emit(msg)
+            model.update_status(msg)
 
         # PyLint can't find BLERadio for some reason so special case it here.
         ble = adafruit_ble.BLERadio()  # pylint: disable=no-member
@@ -216,7 +202,7 @@ class SB20Service(Service):
 
             sb20: SB20Service = sb20_connection[SB20Service]
             sb20.connection = sb20_connection
-            sb20.gears = notifier
+            sb20.model = model
             return sb20
         return None
 
@@ -251,6 +237,40 @@ class SB20Service(Service):
         for s in setup:
             self.challenge(*s)
 
+
+class SB20Model(QObject):
+    gears_changed = Signal(int, int, int, int)
+    status_message = Signal(str)
+
+    def __init__(self):
+        super(SB20Model, self).__init__()
+        self.service = None
+        self.current_chainring = (1, 34)
+        self.current_cog = (1, 33)
+        self.service_thread = None
+
+    def connect_service(self):
+        def connector():
+            self.service = SB20Service.connect_service(self)
+            if self.service is not None:
+                self.service.run()
+
+        self.service_thread = threading.Thread(target=connector, daemon=True)
+        self.service_thread.start()
+
+    def disconnect_service(self):
+        self.service.disconnect_service()
+        self.service_thread.join(5.0)
+
+    def update_gears(self, chainring_index, chainring_size, cog_index, cog_size):
+        self.current_chainring = (chainring_index, chainring_size)
+        self.current_cog = (cog_index, cog_size)
+        self.update_status("{0}:{1}".format(chainring_size, cog_size))
+        self.gears_changed.emit(chainring_index, chainring_size, cog_index, cog_size)
+
+    def update_status(self, msg):
+        self.status_message.emit(msg)
+
     def chainrings(self):
         return (34, 50)
 
@@ -269,23 +289,22 @@ class SB20Service(Service):
     def cog_size(self):
         return self.current_cog[1]
 
+    def service_connected(self):
+        return self.service is not None
+
 
 class GearsWidget(QWidget):
-    def __init__(self):
+    def __init__(self, sb20):
         QWidget.__init__(self)
+        self.sb20 = sb20
         self.service = None
         self.pen = QPen()
         self.brush = QBrush()
-
-    def set_service(self, service: SB20Service):
-        self.service = service
-
-    def unset_service(self):
-        self.service = None
+        self.setMinimumHeight(150)
+        self.setMinimumWidth(300)
+        self.sb20.gears_changed.connect(self.update_gears)
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        if self.service is None:
-            return
         path = QPainterPath()
         path.moveTo(20, 80)
         path.lineTo(20, 30)
@@ -296,28 +315,28 @@ class GearsWidget(QWidget):
         painter.setBrush(self.brush)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
-        x_inc = len(self.service.chainrings()) + len(self.service.cogs()) + 3
+        x_inc = int(self.width() / (len(self.sb20.chainrings()) + len(self.sb20.cogs()) + 3))
         w = int(2 * x_inc / 3)
         x = x_inc
-        y_max = self.height() * 0.9
+        h_max = self.height() * 0.9
         y_0 = self.height() * 0.05
-        factor = y_max / self.service.chainrings()[-1]
-        for chainring in self.service.chainrings():
-            y = chainring * factor
-            r = QRect(x, int(y_0 + (y_max - y)/2), w, int(y))
-            if chainring == self.service.chainring_size():
+        factor = h_max / self.sb20.chainrings()[-1]
+        for chainring in self.sb20.chainrings():
+            h = chainring * factor
+            r = QRect(x, int(y_0 + (h_max - h)/2), w, int(h))
+            if self.sb20.service_connected() and chainring == self.sb20.chainring_size():
                 painter.setBrush(Qt.SolidPattern)
             else:
                 painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(r, 25, 25, Qt.RelativeSize)
             x += x_inc
 
-        x = self.width() - (len(self.service.cogs()) + 1) * x_inc
-        factor = y_max / self.service.cogs()[0]
-        for cog in self.service.cogs():
-            y = cog * factor
-            r = QRect(x, int(y_0 + (y_max - y)/2), w, int(y))
-            if cog == self.service.cog_size():
+        x = self.width() - (len(self.sb20.cogs()) + 1) * x_inc
+        factor = h_max / self.sb20.cogs()[0]
+        for cog in self.sb20.cogs():
+            h = cog * factor
+            r = QRect(x, int(y_0 + (h_max - h)/2), w, int(h))
+            if self.sb20.service_connected() and cog == self.sb20.cog_size():
                 painter.setBrush(Qt.SolidPattern)
             else:
                 painter.setBrush(Qt.NoBrush)
@@ -329,80 +348,106 @@ class GearsWidget(QWidget):
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(QRect(0, 0, self.width() - 1, self.height() - 1))
 
-    @Slot()
-    def update_gears(self):
+    @Slot(int, int, int, int)
+    def update_gears(self, *args):
         self.update()
 
 
-class MyWidget(QWidget):
+class SB20Widget(QWidget):
     def __init__(self):
         QWidget.__init__(self)
+        self.sb20 = SB20Model()
+
+        top_filler = QWidget()
+        top_filler.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        bottom_filler = QWidget()
+        bottom_filler.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding);
+
         self.button = QPushButton("Connect")
         self.disconnect_button = QPushButton("Disconnect")
         self.disconnect_button.hide()
         self.status = QLabel("")
         self.status.setAlignment(Qt.AlignLeft)
-        self.text = QLabel("Hello World")
+        self.text = QLabel("--:--")
         self.text.setAlignment(Qt.AlignCenter)
-        self.text.setFont(QFont("Courier", 100))
-        self.gears = GearsWidget()
+        self.text.setFont(QFont("Courier", 75))
+        self.gears = GearsWidget(self.sb20)
 
         self.layout = QVBoxLayout()
+        self.layout.setContentsMargins(5, 5, 5, 5)
+        self.layout.addWidget(top_filler)
         self.layout.addWidget(self.text)
         self.layout.addWidget(self.button)
         self.layout.addWidget(self.disconnect_button)
         self.layout.addWidget(self.status)
         self.layout.addWidget(self.gears)
+        self.layout.addWidget(bottom_filler)
         self.setLayout(self.layout)
-        self.service: SB20Service = None
 
-        # Connecting the signal
+        # Connecting signals
         self.button.clicked.connect(self.connect_service)
         self.disconnect_button.clicked.connect(self.disconnect_service)
+        self.sb20.gears_changed.connect(self.show_gearing)
+        self.sb20.status_message.connect(self.update_status)
 
     @Slot()
     def connect_service(self):
-        def connector():
-            notifier = GearNotification()
-            notifier.gears_changed.connect(self.show_gearing)
-            notifier.gears_changed.connect(self.gears.update_gears)
-            notifier.status_message.connect(self.update_status)
-            self.service = SB20Service.connect(notifier)
-            self.gears.set_service(self.service)
-            if self.service is not None:
-                self.service.run()
-
+        self.sb20.connect_service()
         self.button.hide()
-        threading.Thread(target=connector).start()
         self.disconnect_button.show()
 
     @Slot()
     def disconnect_service(self):
-        self.service.disconnect()
-        self.service = None
-        self.gears.unset_service()
+        self.sb20.disconnect_service()
         self.disconnect_button.hide()
         self.button.show()
 
     @Slot()
-    def show_gearing(self, s):
-        chainring = self.service.chainring_index()
-        chainring_size = self.service.chainring_size()
-        cog = self.service.cog_index()
-        cog_size = self.service.cog_size()
-        self.text.setText("{0} ({1}) : {2} ({3})".format(chainring, chainring_size, cog, cog_size))
+    def show_gearing(self, chainring_index, chainring_size, cog_index, cog_size):
+        if self.sb20.service_connected() and chainring_index > 0:
+            self.text.setText("{0}:{1}".format(chainring_size,cog_size))
+        else:
+            self.text.setText("--:--")
 
     @Slot()
     def update_status(self, status):
-        self.status.setText(status)
+        # self.status.setText(status)
+        self.parent().statusBar().showMessage(status)
+
+
+class SB20Window(QMainWindow):
+    def __init__(self, app):
+        super(SB20Window, self).__init__()
+        self.app = app
+        self.actions = {}
+
+        self.setCentralWidget(SB20Widget())
+
+        self.create_actions()
+        self.create_menus()
+
+        self.setWindowTitle("Stages SB20")
+        self.statusBar().showMessage("Stages SB20 Monitor © dunbarbikes.com 2020")
+        # self.setMinimumSize(160, 160)
+        # self.resize(480, 320)
+
+    def create_actions(self):
+        action = QAction("E&xit", self)
+        action.setShortcuts(QKeySequence.Quit)
+        action.setStatusTip("Exit the application")
+        action.triggered.connect(self.close)
+        self.actions["exit"] = action
+
+    def create_menus(self):
+        file_menu = self.menuBar().addMenu("&File")
+        file_menu.addAction(self.actions["exit"])
 
 
 if __name__ == "__main__":
     # logging.basicConfig(level=logging.DEBUG)
-    app = QApplication(sys.argv)
+    app: QApplication = QApplication(sys.argv)
 
-    widget = MyWidget()
-    widget.resize(800, 600)
+    widget = SB20Window(app)
     widget.show()
 
     sys.exit(app.exec_())
