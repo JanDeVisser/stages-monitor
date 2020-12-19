@@ -229,7 +229,7 @@ _Use case:_
 |   584 | `05 01 c8 00 01` | | `c8` = 200 |
 | 585 | | `05 01 c8 00 01` | |
 |  | | `fd 04` | |
-|   588 | `0c 02 00 02 01 32 1a 01 03 64 00` | `0c 01 00 01 01 22 00 21 00 00 03` | Setting up the dream drive profile. It seems that `02` in bit 3 indicates dream drive; `01` in bit 4 is one chainring, `32` in bit 5 is 50 cogs. Unsure about the rest, but the `64` (= 100 decimal) is interesting. `03` could be how many gears the left shifter (FD) skips |
+|   588 | `0c 02 00 02 01 32 1a 01 03 64 00` | `0c 01 00 01 01 22 00 21 00 00 03` | Setting up the dream drive profile. It seems that `02` in bit 3 indicates dream drive; `01` in bit 4 is one chainring, `32` in bit 5 is 50 cogs, `03` is how many gears the left shifter (FD) skips. Unsure about the rest, but the `64` (= 100 decimal) is interesting. Appears to be double the number of gears. |
 |   592 | | `0c 02 01 02 01 32 1a 01 03 64 00` | |
 |   593 | `0c 00 02` | | |
 |   599 | | `0c 01 02 01 01 22 00 21 00 01 03` | |
@@ -269,6 +269,56 @@ _Use case:_
 
 
 
-
-
+| Hex Gear | Dec Gear
+|----------|----------
+| `f4 01` | 500
+| `4f 02` | 591
+| `ab 02` | 683
+| `07 03` | 775
+| `63 03` | 867
+| `bf 03` | 959
+| `1b 04` | 1051
+| `76 04` | 1142
+| `d2 04` | 1234
+| `2e 05` | 1326
+| `8a 05` | 1418
+| `e6 05` | 1510
+| `42 06` | 1602
+| `9d 06` | 1693
+| `f9 06` | 1785
+| `55 07` | 1877
+| `b1 07` | 1969
+| `0d 08` | 2061
+| `69 08` | 2153
+| `c4 08` | 2244
+| `20 09` | 2336
+| `7c 09` | 2428
+| `d8 09` | 2520
+| `34 0a` | 2612
+| `90 0a` | 2704
+| `eb 0a` | 2795
+| `47 0b` | 2887
+| `a3 0b` | 2979
+| `ff 0b` | 3071
+| `5b 0c` | 3163
+| `b7 0c` | 3255
+| `12 0d` | 3346
+| `6e 0d` | 3438
+| `ca 0d` | 3530
+| `26 0e` | 3622
+| `82 0e` | 3714
+| `de 0e` | 3806
+| `39 0f` | 3897
+| `95 0f` | 3989
+| `f1 0f` | 4081
+| `4d 10` | 4173
+| `a9 10` | 4265
+| `05 11` | 4357
+| `60 11` | 4448
+| `bc 11` | 4540
+| `18 12` | 4632
+| `74 12` | 4724
+| `d0 12` | 4816
+| `2c 13` | 4908
+| `88 13` | 5000
 
