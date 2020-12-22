@@ -9,7 +9,20 @@ static BLEUUID sb20_service("0c46beaf-9c22-48ff-ae0e-c6eae1a2f4e5");
 static BLEUUID sb20_status("0c46beb0-9c22-48ff-ae0e-c6eae1a2f4e5");
 static BLEUUID sb20_command("0c46beb1-9c22-48ff-ae0e-c6eae1a2f4e5");
 
+/* From https://www.uuidgenerator.net/ */
+static BLEUUID config_service("5fc1ff12-e9dc-4aa3-95d9-4dc96949bdc5");
+static BLEUUID config_chainrings("3a6ced0d-f13c-4578-9e45-086a69ecdf22");
+static BLEUUID config_cogs("3cbcbe91-0212-498e-acb2-ff69c5ff2cfc");
+
 static void notifyCallback(BLERemoteCharacteristic *, uint8_t *, size_t, bool);
+
+class SB20Model;
+class SB20View;
+class SB20;
+
+static SB20Model *model = nullptr;
+static SB20View  *view = nullptr;
+static SB20      *sb20 = nullptr;
 
 void hex_dump_raw(uint8_t *data, unsigned int length) {
   if (data == nullptr) {
@@ -31,15 +44,6 @@ void hex_dump(uint8_t *data) {
   } else {
     hex_dump_raw(data + 1, data[0]);
   }
-}
-
-void display_message(const char *msg) {
-  Serial.println(msg);
-  Heltec.display -> clear();
-  Heltec.display -> setTextAlignment(TEXT_ALIGN_CENTER);
-  Heltec.display -> setFont(ArialMT_Plain_16);
-  Heltec.display -> drawString(Heltec.display -> getWidth() / 2, (Heltec.display -> getHeight()) / 2 - 8, msg);
-  Heltec.display -> display();    
 }
 
 
@@ -92,7 +96,6 @@ public:
   }
 
 };
-
 
 
 typedef struct _challenge_data {
@@ -167,10 +170,10 @@ public:
   }
 
   bool match(uint8_t *received) {
-    this -> dump("Matching");
-    Serial.print("Against ");
-    hex_dump(received);
-    Serial.println();
+    // this -> dump("Matching");
+    // Serial.print("Against ");
+    // hex_dump(received);
+    // Serial.println();
     for (int ix = 0; ix < this -> _num; ix++) {
       if (!memcmp(received + 1, this -> _responses[ix] + 1, min(this -> _responses[ix][0], received[0]))) {
         return true;
@@ -183,27 +186,30 @@ public:
 uint8_t GEAR_CHANGE_PREFIX[4] = {3, 0x0c, 0x01, 0x00};
 
 
-class SB20Model {
-  uint8_t  num_chainrings;
-  uint8_t  num_cogs;
-  uint8_t *chainrings;
-  uint8_t *cogs;
-  uint8_t  cur_chainring;
-  uint8_t  cur_cog;
-  uint8_t  width;
-  uint8_t  height;
-  bool     redisplay;
+class ModelListener {
 public:
-  SB20Model() { 
-    this -> num_chainrings = 2;
-    this -> num_cogs = 12;
-    this -> chainrings = new uint8_t[2]{ 34, 50 };
-    this -> cogs = new uint8_t[12]{ 33, 28, 24, 21, 19, 17, 15, 14, 13, 12, 11, 10 };
+  virtual void onModelUpdate(SB20Model *model) = 0;
+  virtual void onGearChange(SB20Model *model) = 0;
+  virtual void onDisplayMessage(const char *msg) = 0;
+};
+
+class SB20Model : public BLECharacteristicCallbacks {
+private:
+  uint8_t           *chainrings;
+  uint8_t           *cogs;
+  uint8_t            cur_chainring;
+  uint8_t            cur_cog;
+  ModelListener     *listener;
+
+  BLECharacteristic *chainrings_char;
+  BLECharacteristic *cogs_char;
+
+public:
+  SB20Model(ModelListener *listener) : listener(listener) { 
+    this -> read_config();
     this -> cur_chainring = 0;
     this -> cur_cog = 0;
-    this -> height = Heltec.display -> getHeight();
-    this -> width = Heltec.display -> getWidth();
-    this -> redisplay = false;
+    // this -> start_ble_service();
   }
 
   ~SB20Model() {
@@ -211,53 +217,242 @@ public:
     delete this -> cogs;
   }
 
+  void set_listener(ModelListener *listener) {
+    this -> listener = listener;
+  }
+
+  void start_ble_service() {
+    BLEServer *server = BLEDevice::createServer();
+    BLEService *service = server -> createService(config_service);
+    Serial.println("Server side BLE service created");
+
+    this -> chainrings_char = service -> createCharacteristic(
+      config_chainrings,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    this -> chainrings_char -> setValue(this -> chainrings, this -> chainrings[0] + 1);
+    this -> chainrings_char -> setCallbacks(this);
+    Serial.println("Chainrings characteristic created");
+
+    this -> cogs_char = service -> createCharacteristic(
+      config_cogs,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+    this -> cogs_char -> setValue(this -> cogs, this -> cogs[0] + 1);
+    this -> cogs_char -> setCallbacks(this);
+    Serial.println("Cogs characteristic created");
+
+    service -> start();
+    Serial.println("Server side BLE service started");
+
+    BLEAdvertising *advertising = BLEDevice::getAdvertising();
+    advertising -> addServiceUUID(config_service);
+    advertising -> setScanResponse(true);
+    advertising -> setMinPreferred(0x06);  // functions that help with iPhone connections issue
+    advertising -> setMinPreferred(0x12);
+    BLEDevice::startAdvertising();
+    Serial.println("BLE service advertised");
+  }
+
+	void onRead(BLECharacteristic* characteristic) {
+    Serial.print("Read of char ");
+    Serial.println(characteristic -> toString().c_str());
+  }
+
+	void onWrite(BLECharacteristic* characteristic) {
+    Serial.print("Write of char ");
+    if (characteristic == this -> chainrings_char) {
+      Serial.println("Chainrings");
+    } else if (characteristic == this -> cogs_char) {
+      Serial.println("Cogs");
+    } else {
+      Serial.println(characteristic -> toString().c_str());
+    }
+    Serial.print("Value is now ");
+
+    size_t sz = characteristic -> getDataLength();
+    uint8_t *chainrings = characteristic -> getData();
+    hex_dump_raw(chainrings, sz);
+
+    Serial.println();
+  }
+
+	void onNotify(BLECharacteristic* characteristic) {
+    Serial.print("Notify of char ");
+    Serial.println(characteristic -> toString().c_str());
+  }
+
+	virtual void onStatus(BLECharacteristic* characteristic, Status s, uint32_t code) {
+    Serial.print("Status of char ");
+    Serial.print(characteristic -> toString().c_str());
+    Serial.print(": ");
+    switch (s) {
+      case SUCCESS_INDICATE:
+        Serial.print("SUCCESS_INDICATE");
+        break;
+	    case SUCCESS_NOTIFY:
+        Serial.print("SUCCESS_NOTIFY");
+        break;
+	    case ERROR_INDICATE_DISABLED:
+        Serial.print("ERROR_INDICATE_DISABLED");
+        break;
+	    case ERROR_NOTIFY_DISABLED:
+        Serial.print("ERROR_NOTIFY_DISABLED");
+        break;
+	    case ERROR_GATT:
+        Serial.print("ERROR_GATT");
+        break;
+	    case ERROR_NO_CLIENT:
+        Serial.print("ERROR_NO_CLIENT");
+        break;
+	    case ERROR_INDICATE_TIMEOUT:
+        Serial.print("ERROR_INDICATE_TIMEOUT");
+        break;
+	    case ERROR_INDICATE_FAILURE:
+        Serial.print("ERROR_INDICATE_FAILURE");
+        break;
+    }
+    Serial.print(", code: ");
+    Serial.println(code);
+  }
+
   void read_config() {
     Preferences prefs;
 
     prefs.begin("stages-sb20", false);
     if (prefs.getBytesLength("num-chainrings") && prefs.getBytesLength("chainrings")) {
-      this -> num_chainrings = prefs.getUChar("num-chainrings", 2);
-      this -> chainrings = new uint8_t[num_chainrings];
-      prefs.getBytes("chainrings", this -> chainrings, this -> num_chainrings);
+      uint8_t num_chainrings = prefs.getUChar("num-chainrings", 2);
+      this -> chainrings = new uint8_t[num_chainrings + 1];
+      this -> chainrings[0] = num_chainrings;
+      prefs.getBytes("chainrings", &this -> chainrings[1], num_chainrings);
     } else {
-      this -> num_chainrings = 2;
-      this -> chainrings = new uint8_t[2]{ 34, 50 };
+      this -> chainrings = new uint8_t[3]{ 2, 34, 50 };
     }
+
     if (prefs.getBytesLength("num-cogs") && prefs.getBytesLength("cogs")) {
-      this -> num_cogs = prefs.getUChar("num-cogs", 12);
-      this -> cogs = new uint8_t[num_cogs];
-      prefs.getBytes("chainrings", this -> cogs, this -> num_chainrings);
+      uint8_t num_cogs = prefs.getUChar("num-cogs", 12);
+      this -> cogs = new uint8_t[num_cogs + 1];
+      this -> cogs[0] = num_cogs;
+      prefs.getBytes("cogs", &this -> cogs[1], num_cogs);
     } else {
-      this -> num_cogs = 12;
-      this -> cogs = new uint8_t[12]{ 33, 28, 24, 21, 19, 17, 15, 14, 13, 12, 11, 10 };
+      this -> cogs = new uint8_t[13]{ 12, 33, 28, 24, 21, 19, 17, 15, 14, 13, 12, 11, 10 };
     }
     prefs.end();
   }
 
-  void status_message(uint8_t *status) {
-    if ((status[0] > 5) && !memcmp(status + 1, GEAR_CHANGE_PREFIX + 1, GEAR_CHANGE_PREFIX[0])) {
-      this -> cur_chainring = status[4] - 1;
-      this -> cur_cog = status[5] - 1;
-      this -> redisplay = true;
+  uint8_t num_chainrings() {
+    return this -> chainrings[0];
+  }
+
+  uint8_t num_cogs() {
+    return this -> cogs[0];
+  }
+
+  uint8_t chainring(int ix) {
+    return ((ix >= 1) && (ix <= num_chainrings())) ? this -> chainrings[ix] : 0;
+  }
+
+  uint8_t cog(int ix) {
+    return ((ix >= 1) && (ix <= num_cogs())) ? this -> cogs[ix] : 0;
+  }
+
+  uint8_t current_chainring() {
+    return this -> cur_chainring;
+  }
+
+  uint8_t current_cog() {
+    return this -> cur_cog;
+  }
+
+  void gear_change(uint8_t new_chainring, uint8_t new_cog) {
+    if ((new_chainring != cur_chainring) || (new_cog != cur_cog)) {
+      this -> cur_chainring = new_chainring;
+      this -> cur_cog = new_cog;
+      if (this -> listener) {
+        this -> listener -> onGearChange(this);
+      }
     }
   }
 
+  void display_message(const char *msg) {
+    if (this -> listener) {
+      this -> listener -> onDisplayMessage(msg);
+    }
+  }
+
+};
+
+
+class SB20View {
+public:
+  virtual void display() = 0;
+
+  virtual void refresh() = 0;
+
+  virtual void onGearChange(SB20Model *) = 0;
+
+  virtual void display_message(const char *msg) = 0;
+
+  virtual void onDisplayMessage(const char *msg) {
+    Serial.println(msg);
+    this -> display_message(msg);
+  }
+};
+
+
+class SB20HeltecView : public SB20View {
+private:
+  SB20Model  *model;
+  uint8_t     width;
+  uint8_t     height;
+  const char *message = nullptr;
+  bool        redisplay;
+
+public:
+
+  SB20HeltecView(SB20Model *model) : model(model), message(nullptr), redisplay(false) {
+    Heltec.display -> flipScreenVertically();
+    Heltec.display -> setContrast(255);
+    this -> height = Heltec.display -> getHeight();
+    this -> width = Heltec.display -> getWidth();
+  }
+
+  void onGearChange(SB20Model *model) {
+    this -> redisplay = true;
+    // this -> display();
+  }
+
+  void display_message(const char *msg) {
+    this -> message = msg;
+    // this -> display();
+  }
+
+  void refresh() {
+    this -> redisplay = true;
+  }
+
   void display() {
-    if (this -> redisplay) {
+    if (this -> message != nullptr) {
+      Serial.println(this -> message);
+      Heltec.display -> clear();
+      Heltec.display -> setFont(ArialMT_Plain_16);
+      Heltec.display -> setTextAlignment(TEXT_ALIGN_CENTER);
+      Heltec.display -> drawString(this -> width / 2, this -> height / 2 - 8, this -> message);
+      Heltec.display -> display();    
+      this -> message = nullptr;
+    } else if (this -> redisplay) {
       Heltec.display -> clear();
       Heltec.display -> setColor(WHITE);
 
-      uint8_t x_inc = (uint8_t) (width  / (num_chainrings + num_cogs + 2));
+      uint8_t x_inc = (uint8_t) (width  / (model -> num_chainrings() + model -> num_cogs() + 2));
       uint8_t w = (uint8_t) (2 * x_inc / 3);
       uint8_t x = (uint8_t) (x_inc / 2);
       uint8_t h_max = this -> height - 1;
       uint8_t y_0 = 0;
-      float factor = h_max / chainrings[num_chainrings - 1];
-      for (int ix = 0; ix < num_chainrings; ix++) {
-        uint8_t chainring = chainrings[ix];
+      float factor = h_max / model -> chainring(model -> num_chainrings());
+      for (int ix = 1; ix <= model -> num_chainrings(); ix++) {
+        uint8_t chainring = model -> chainring(ix);
         float h = chainring * factor;
         uint8_t y = (uint8_t) (y_0 + (h_max - h)/2);
-        if (ix == cur_chainring) {
+        if (ix == model -> current_chainring()) {
           Heltec.display -> fillRect(x, y, w, h);
         } else {
           Heltec.display -> drawRect(x, y, w, h);
@@ -266,29 +461,26 @@ public:
       }
 
       x += x_inc;
-      factor = h_max / cogs[0];
-      for (int ix = 0; ix < num_cogs; ix++) {
-        uint8_t cog = cogs[ix];
+      factor = h_max / model -> cog(1);
+      for (int ix = 1; ix <= model -> num_cogs(); ix++) {
+        uint8_t cog = model -> cog(ix);
         float h = cog * factor;
         uint8_t y = (uint8_t) (y_0 + (h_max - h)/2);
-        if (ix == cur_cog) {
+        if (ix == model -> current_cog()) {
           Heltec.display -> fillRect(x, y, w, h);
         } else {
           Heltec.display -> drawRect(x, y, w, h);
         }
         x += x_inc;
       }
-      Heltec.display->display();
+      Heltec.display -> display();
       this -> redisplay = false;
     }
   }
 
-  void status_message(char *msg) {
-    display_message(msg);
-  }
-
 };
 
+challenge_data _ping = { { 0x02, 0x0d, 0x04 }, { { 0x02, 0x0d, 0x04 }, { 0x00 } } };
 
 challenge_data _bootstrap_data[22] = {
   { { 0x02, 0x08, 0x00 }, { { 0x02, 0x08, 0x00 }, { 0x00 } } },
@@ -322,25 +514,35 @@ enum SB20Error {
   NoStatusChar
 };
 
-class SB20 : public BLEClientCallbacks {
+class SB20 : public BLEClientCallbacks, public ModelListener {
 private:
   RingBuffer               challenges;
   RingBuffer               status_queue;
   Challenge               *_waiting_for;
-  SB20Model                model;
+  SB20Model               *model;
+  SB20View                *view;
   BLEClient               *client;
   BLEAdvertisedDevice     *device;
   BLERemoteCharacteristic *command;
   BLERemoteCharacteristic *status;
+  bool                     bootstrapped;
   SB20Error                error_code;
   unsigned long            connect_time;
+  unsigned long            last_contact;
+  unsigned long            last_shift;
 
 public:
-  SB20(BLEAdvertisedDevice *device) : challenges(64), status_queue(16), model() {
-    this -> _waiting_for = nullptr;
-    this -> device = device;
-    this -> client = nullptr;
-    this -> error_code = NoError;
+  SB20(BLEAdvertisedDevice *device, SB20Model *model, SB20View *view) : 
+      challenges(64), 
+      status_queue(16),
+      device(device),
+      model(model),
+      client(nullptr),
+      error_code(NoError),
+      _waiting_for(nullptr),
+      bootstrapped(false),
+      view(view) {
+    model -> set_listener(this);
   }
 
   bool connect() {
@@ -360,8 +562,6 @@ public:
     if (service == nullptr) {
       this -> error_code = NoSB20Service;
       this -> client -> disconnect();
-      delete client;
-      this -> client = nullptr;
       return false;
     }
     Serial.println(" - Found our service");
@@ -370,8 +570,6 @@ public:
     if (command == nullptr) {
       this -> error_code = NoCommandChar;
       this -> client -> disconnect();
-      delete client;
-      this -> client = nullptr;
       return false;
     }
     Serial.println(" - Found command characteristic");
@@ -380,16 +578,14 @@ public:
     if (status == nullptr) {
       this -> error_code = NoStatusChar;
       this -> client -> disconnect();
-      delete client;
-      this -> client = nullptr;
       return false;
     }
     Serial.println(" - Found status characteristic");
 
     if (status -> canNotify()) {
-      status -> registerForNotify(notifyCallback); // FIXME error handling
+      status -> registerForNotify(notifyCallback);
     }
-    this -> connect_time = millis();
+    this -> connect_time = this -> last_contact = this -> last_shift = millis();
 
     return true;
   }
@@ -421,29 +617,31 @@ public:
     return this -> error_code;
   }
 
-  void status_message(char *msg) {
-    this -> model.status_message(msg);
-  }
-
   bool send_command(uint8_t *cmd) {
     command -> writeValue(cmd + 1, cmd[0]);
+    this -> last_contact = millis();
   }
 
   bool add_challenge(challenge_data *challenge) {
     Challenge *c = new Challenge(challenge);
-    c -> dump("Adding challenge");
+    // c -> dump("Adding challenge");
     this -> challenges.push(c);
     return true;
   }
 
   bool bootstrap() {
-    this -> status_message("Initializing ...");
-    for (int ix = 0; _bootstrap_data[ix].challenge[0]; ix++) {
-      add_challenge(&_bootstrap_data[ix]);
+    if (!this -> bootstrapped) {
+      this -> display_message("Initializing ...");
+      for (int ix = 0; _bootstrap_data[ix].challenge[0]; ix++) {
+        add_challenge(&_bootstrap_data[ix]);
+      }
+      while (!this -> challenges.empty() || this -> _waiting_for != nullptr) {
+        this -> handle_incoming();
+      }
+      this -> bootstrapped = true;
+      Serial.println("Bootstrapped");
     }
-    while (!this -> challenges.empty() || this -> _waiting_for != nullptr) {
-      this -> handle_incoming();
-    }
+    this -> view -> refresh();
   }
 
   bool send_challenge() {
@@ -452,7 +650,7 @@ public:
     }
     this -> _waiting_for = (Challenge *) this -> challenges.pop();
     if (this -> _waiting_for != nullptr) {
-      this -> _waiting_for -> dump("Sending");
+      // this -> _waiting_for -> dump("Sending");
       this -> send_command(this -> _waiting_for -> challenge());
       if (this -> _waiting_for -> responses() == 0) {
         delete this -> _waiting_for;
@@ -463,9 +661,10 @@ public:
   }
 
   bool push_status(uint8_t *data, int length) {
-    if (length < 0 || length > 255) {
+    if (length < 0 || length > 254) {
       return false;
     }
+    this -> last_contact = millis();
     // if (this -> status_queue[this -> queue_ptr] != nullptr) {
     //   return false;
     // }
@@ -475,50 +674,74 @@ public:
     }
     status[0] = (uint8_t) length;
     memcpy(status + 1, data, length);
-    Serial.print("Pushing status ");
-    hex_dump(status);
+    // Serial.print("Incoming status ");
+    // hex_dump(status);
+    // Serial.println();
     this -> status_queue.push(status);
-    Serial.println(" -- done");
     return true;
   }
 
   bool handle_incoming() {
-    uint8_t *status;
+    uint8_t       *status;
+    unsigned long  current = millis();
+
+    // if ((current - this -> last_shift) >= 30 * 60 * 1000) {
+    //   this -> client -> disconnect();
+    //   return false;
+    // }
+
+    if ((current - this -> last_contact) >= 60000) {
+      sb20 -> add_challenge(&_ping);
+    }
+
     while ((status = (uint8_t *) this -> status_queue.pop()) != nullptr) {
       if (this -> _waiting_for != nullptr) {
         if (this -> _waiting_for -> match(status)) {
           delete this -> _waiting_for;
           this -> _waiting_for = nullptr;
         }
-      } else {
-        this -> model.status_message(status);
+      } else if ((status[0] > 5) && !memcmp(status + 1, GEAR_CHANGE_PREFIX + 1, GEAR_CHANGE_PREFIX[0])) {
+        this -> last_shift = current;
+        this -> model -> gear_change(status[4], status[5]);
       }
     }
     this -> send_challenge();
-    this -> model.display();
+    return true;
+  }
+
+  void onModelUpdate(SB20Model *model) {
+    //
+  }
+
+  void onGearChange(SB20Model *model) {
+    if (this -> view) {
+      this -> view -> onGearChange(model);
+    }
+  }
+  
+  void onDisplayMessage(const char *msg) {
+    this -> display_message(msg);
+  }
+
+  void display_message(const char *msg) {
+    if (this -> view) {
+      this -> view -> onDisplayMessage(msg);
+    }
   }
 
   void onConnect(BLEClient *client) {
-    Serial.println("onConnect");
+    this -> display_message("Connect");
   }
 
   void onDisconnect(BLEClient *client) {
-    this -> client = nullptr;
-    this -> status_message("Disconnected");
+//    this -> client = nullptr;
+//    delete this -> client;
+//    this -> display_message("Disconnect");
+    Serial.println("Disconnect");
   }
 };
 
-static SB20 *sb20 = nullptr;
-
 static void notifyCallback(BLERemoteCharacteristic *status, uint8_t *data, size_t length, bool isNotify) {
-  Serial.print("Notification for ");
-  Serial.print(status->getUUID().toString().c_str());
-  Serial.print(": ");
-  hex_dump_raw(data, length);
-  Serial.print(" [");
-  Serial.print(length);
-  Serial.println("]");
-
   if (sb20 != nullptr) {
     sb20 -> push_status(data, length);
   }
@@ -571,14 +794,10 @@ class FindSB20Callback : public BLEAdvertisedDeviceCallbacks {
     }
 
     // We have found a device, let us now see if it contains the service we are looking for.
-    if (sb20) {
-      delete sb20;
-    }
-    sb20 = nullptr;
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(speed_cadence_service)) {
-      BLEDevice::getScan()->stop();
+      BLEDevice::getScan() -> stop();
       BLEAdvertisedDevice *device = new BLEAdvertisedDevice(advertisedDevice);
-      sb20 = new SB20(device);
+      sb20 = new SB20(device, model, view);
     } else {
       add_to_blacklist(advertisedDevice.toString().c_str());
     }
@@ -586,44 +805,55 @@ class FindSB20Callback : public BLEAdvertisedDeviceCallbacks {
 };
 
 
+void start_server() {
+  model = new SB20Model(nullptr);
+  view = new SB20HeltecView(model);
+}
+
+
 void setup() {
-  Heltec.begin(true /* Enable display */, true /* Disable LoRa */, true /* Enable Serial */);
+  Heltec.begin(true, false, true);
   Serial.begin(115200);
-  Serial.println("Starting Arduino BLE Client application...");
+  Serial.println("Starting SB20 Monitor");
 
-  Heltec.display->flipScreenVertically();
-  Heltec.display->setContrast(255);
-  Heltec.display->clear();
-  display_message("Scanning");
+  BLEDevice::init("Stages SB20 Monitor");
 
-  BLEDevice::init("");
+  start_server();
 
-  // Retrieve a Scanner and set the callback we want to use to be informed when we
-  // have detected a new device.  Specify that we want active scanning and start the
-  // scan to run for 5 seconds.
+  view -> display_message("Scanning");
+
   BLEScan *scanner = BLEDevice::getScan();
-  scanner->setAdvertisedDeviceCallbacks(new FindSB20Callback());
-  scanner->setInterval(1349);
-  scanner->setWindow(449);
-  scanner->setActiveScan(true);
-  scanner->start(5, false);
+  scanner -> setAdvertisedDeviceCallbacks(new FindSB20Callback());
+  scanner -> setInterval(1349);
+  scanner -> setWindow(449);
+  scanner -> setActiveScan(true);
+  scanner -> start(5, false);
 }
 
 
 void loop() {
+  view -> display();
   if (sb20 != nullptr) {
     if (!sb20 -> is_connected()) {
       sb20 -> connect();
       switch (sb20 -> get_error_code()) {
         case NoSB20Service:
           add_to_blacklist(sb20 -> toString().c_str());
-          sb20 -> status_message("Scanning");
+          if (sb20) {
+            delete sb20;
+          }
+          sb20 = nullptr;
+          view -> display_message("Scanning");
           BLEDevice::getScan() -> start(0);
           break;
         case NoStatusChar:
         case NoCommandChar:
-          sb20 -> status_message("ERG Mode");
-          delay(4000);
+          view -> display_message("ERG Mode");
+          if (sb20) {
+            delete sb20;
+          }
+          sb20 = nullptr;
+          delay(3750);
           BLEDevice::getScan() -> start(0);
           break;
         case NoError:
@@ -634,8 +864,8 @@ void loop() {
       sb20 -> handle_incoming();
     }
   } else {
-    sb20 -> status_message("Scanning");
+    view -> display_message("Scanning");
     BLEDevice::getScan() -> start(0);
   }
-  delay(1000);
+  delay(250);
 }
