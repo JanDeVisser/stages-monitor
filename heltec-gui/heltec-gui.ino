@@ -400,6 +400,8 @@ public:
     Serial.println(msg);
     this -> display_message(msg);
   }
+
+  virtual void erase_message() = 0;
 };
 
 
@@ -409,6 +411,7 @@ private:
   uint8_t     width;
   uint8_t     height;
   const char *message = nullptr;
+  const char *displayed = nullptr;
   bool        redisplay;
 
 public:
@@ -430,33 +433,38 @@ public:
     // this -> display();
   }
 
+  void erase_message() {
+    this -> message = nullptr;
+  }
+
   void refresh() {
     this -> redisplay = true;
   }
 
   void display() {
-    if (this -> message != nullptr) {
-      Serial.println(this -> message);
-      Heltec.display -> clear();
-      Heltec.display -> setFont(ArialMT_Plain_16);
-      Heltec.display -> setTextAlignment(TEXT_ALIGN_CENTER);
-      Heltec.display -> drawString(this -> width / 2, this -> height / 2 - 8, this -> message);
-      Heltec.display -> display();    
-      this -> message = nullptr;
-    } else if (this -> redisplay) {
+    if ((this -> message != this -> displayed) || (this -> redisplay)) {
       Heltec.display -> clear();
       Heltec.display -> setColor(WHITE);
+
+      if ((this -> message != nullptr) && strcmp(this -> message, "")) {
+        Serial.println(this -> message);
+        Heltec.display -> clear();
+        Heltec.display -> setFont(ArialMT_Plain_10);
+        Heltec.display -> setTextAlignment(TEXT_ALIGN_LEFT);
+        Heltec.display -> drawString(this -> width / 2, 12, this -> message);
+      }
+      this -> displayed = this -> message;
 
       uint8_t x_inc = (uint8_t) (width  / (model -> num_chainrings() + model -> num_cogs() + 2));
       uint8_t w = (uint8_t) (2 * x_inc / 3);
       uint8_t x = (uint8_t) (x_inc / 2);
-      uint8_t h_max = this -> height - 1;
+      uint8_t h_max = this -> height - 12;
       uint8_t y_0 = 0;
-      float factor = h_max / model -> chainring(model -> num_chainrings());
+      float factor = h_max / (model -> chainring(model -> num_chainrings() / 2));
       for (int ix = 1; ix <= model -> num_chainrings(); ix++) {
         uint8_t chainring = model -> chainring(ix);
         float h = chainring * factor;
-        uint8_t y = (uint8_t) (y_0 + (h_max - h)/2);
+        uint8_t y = (uint8_t) (height - h); //(y_0 + (h_max - h)/2);
         if (ix == model -> current_chainring()) {
           Heltec.display -> fillRect(x, y, w, h);
         } else {
@@ -470,7 +478,7 @@ public:
       for (int ix = 1; ix <= model -> num_cogs(); ix++) {
         uint8_t cog = model -> cog(ix);
         float h = cog * factor;
-        uint8_t y = (uint8_t) (y_0 + (h_max - h)/2);
+        uint8_t y = (uint8_t) (height - h); // (y_0 + (h_max - h)/2);
         if (ix == model -> current_cog()) {
           Heltec.display -> fillRect(x, y, w, h);
         } else {
@@ -644,6 +652,7 @@ public:
         this -> handle_incoming();
       }
       this -> bootstrapped = true;
+      this -> view -> erase_message();
       Serial.println("Bootstrapped");
     }
     this -> view -> refresh();
@@ -696,7 +705,8 @@ public:
     // }
 
     if ((current - this -> last_contact) >= 60000) {
-      sb20 -> add_challenge(&_ping);
+      this -> display_message("Ping!");
+      this -> add_challenge(&_ping);
     }
 
     while ((status = (uint8_t *) this -> status_queue.pop()) != nullptr) {
@@ -708,6 +718,9 @@ public:
       } else if ((status[0] > 5) && !memcmp(status + 1, GEAR_CHANGE_PREFIX + 1, GEAR_CHANGE_PREFIX[0])) {
         this -> last_shift = current;
         this -> model -> gear_change(status[4], status[5]);
+      }
+      if (this -> challenges.empty() && (this -> _waiting_for == nullptr)) {
+        this -> view -> erase_message();
       }
     }
     this -> send_challenge();
@@ -872,5 +885,5 @@ void loop() {
     view -> display_message("Scanning");
     BLEDevice::getScan() -> start(0);
   }
-  delay(250);
+  delay(100);
 }
