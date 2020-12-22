@@ -1,8 +1,6 @@
 logs.log
 venv
 .idea
-.vscode
 build
 __pycache__
-/stages-monitor.code-workspace
 /heltec-gui/cmake-build-debug/

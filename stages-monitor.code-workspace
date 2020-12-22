@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../_arduino15/packages/Heltec-esp32/hardware/esp32/0.0.5/libraries"
+		},
+		{
+			"path": "../../Arduino/libraries/Heltec_ESP32_Dev-Boards"
+		},
+		{
+			"path": "../../_arduino15/packages/Heltec-esp32/hardware/esp32/0.0.5/variants/wifi_kit_32"
+		}
+	]
+}

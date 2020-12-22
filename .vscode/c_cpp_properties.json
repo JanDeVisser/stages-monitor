@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "/home/jan/.arduino15/packages/Heltec-esp32/tools/**",
+                "/home/jan/Arduino/libraries/**",
+                "/home/jan/arduino-1.8.13/libraries/**",
+                "/home/jan/.arduino15/packages/Heltec-esp32/hardware/esp32/0.0.5/**"
+            ],
+            "forcedInclude": [],
+            "defines": [
+                "USBCON"
+            ],
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c11",
+            "cppStandard": "c++14"
+        }
+    ],
+    "version": 4
+}
