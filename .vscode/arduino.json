@@ -1,7 +1,7 @@
 {
     "board": "Heltec-esp32:esp32:wifi_kit_32",
     "configuration": "PSRAM=disabled,CPUFreq=240,UploadSpeed=921600,DebugLevel=none",
-    "sketch": "../../_arduino15/packages/Heltec-esp32/hardware/esp32/0.0.5/libraries/ArduinoOTA/examples/OTAWebUpdater/OTAWebUpdater.ino",
+    "sketch": "heltec-gui/heltec-gui.ino",
     "output": "build",
     "port": "/dev/ttyUSB0"
 }
