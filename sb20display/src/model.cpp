@@ -11,7 +11,6 @@ SB20Model::SB20Model() {
   this -> read_config();
   this -> cur_chainring = 0;
   this -> cur_cog = 0;
-//  this -> add_listener(ConfigService::getService(this));
   dump();
 #ifdef MODEL_DEBUG
   Serial.println("Model created");
@@ -62,6 +61,9 @@ void SB20Model::read_config() {
 }
 
 void SB20Model::write_config() const {
+#ifdef MODEL_DEBUG
+  Serial.println("SB20Model::write_config");
+#endif
   Preferences prefs;
 
   prefs.begin("stages-sb20", false);
@@ -141,7 +143,14 @@ void SB20Model::display_message(const char *msg) const {
 }
 
 void SB20Model::onSetup() {
+#ifdef MODEL_DEBUG
+  Serial.println("Setup");
+#endif
   for (std::vector<ModelListener *>::iterator it = this -> listeners.begin(); it != this -> listeners.end(); it++) {
+#ifdef MODEL_DEBUG
+    Serial.print("Setting up ");
+    Serial.println((*it) -> toString().c_str());
+#endif
     (*it) -> onSetup();
   }
 }

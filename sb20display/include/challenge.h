@@ -70,6 +70,10 @@ public:
     return challenges.size();
   }
 
+  std::string toString() {
+    return "Challenge Dialog";
+  }
+
   virtual void onDialogStart() { };
   virtual void onChallengeSent(Challenge *) { };
   virtual void onResponseReceived(Challenge *, Bytes &) { };

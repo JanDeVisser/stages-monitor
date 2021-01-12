@@ -2,6 +2,7 @@
 
 #include "model.h"
 #include "connector.h"
+#include "service.h"
 #include "view.h"
 
 static SB20Model *model = nullptr;
@@ -19,6 +20,7 @@ void setup() {
   model = SB20Model::getModel();
   SB20View::getView(model);
   SB20Connector::getConnector(model);
+  ConfigService::getService(model);
   model -> onSetup();
 #ifdef MAIN_DEBUG
   Serial.println("Started SB20 Monitor");

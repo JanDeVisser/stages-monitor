@@ -16,7 +16,7 @@ SB20Connector::SB20Connector(SB20Model *model) :
     msg_queue(),
     model(model),
     blacklist(),
-    device(),
+    device("Connector"),
     dialogs() {
   model -> add_listener(this);
   this -> add_listener(this);

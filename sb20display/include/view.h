@@ -66,5 +66,9 @@ public:
   void    erase_message();
   void    refresh();
   void    display();
+
+  std::string toString() {
+    return "Heltec View";
+  }
 };
 

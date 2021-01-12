@@ -69,13 +69,19 @@ public:
   explicit ConfigService(SB20Model *model);
   virtual ~ConfigService();
 
+  std::string toString() {
+    return "Config Service";
+  }
+
   void onSetup();
   void onModelUpdate();
 
 	void onRead(BLECharacteristic *);
   void onWrite(BLECharacteristic *);
 	void onNotify(BLECharacteristic *);
-//	virtual void onStatus(BLECharacteristic *, BLECharacteristicCallbacks::Status, uint32_t);
+#ifdef CONFIGSERVICE_ONSTATUS
+	virtual void onStatus(BLECharacteristic *, BLECharacteristicCallbacks::Status, uint32_t);
+#endif
 };
 
 #endif /* __SERVICE_H__ */

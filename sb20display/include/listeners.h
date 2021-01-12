@@ -47,6 +47,9 @@ public:
         return;
       }
     }
+#ifdef BYTES_DEBUG
+    Serial.printf("Adding listener '%s'\n", listener -> toString().c_str());
+#endif
     listeners.push_back(listener);
   }
 
