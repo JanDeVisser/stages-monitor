@@ -12,6 +12,8 @@
 #include "challenge.h"
 #include "model.h"
 
+//#define CONNECTOR_DEBUG
+
 enum SB20Error {
   NoError,
   NoConnection,
@@ -24,59 +26,43 @@ enum SB20Error {
 class SB20Connector :
   public BLEClientCallbacks,
   public BLEAdvertisedDeviceCallbacks,
+  public Sender<ResponseListener>,
   public ModelListener,
-  public ChallengeDialogConnector {
+  public ResponseListener {
 private:
-  class SB20ConnectorListener : public ChallengeDialogListener {
-  private:
-    SB20Connector *connector;
+  std::deque<Bytes>              msg_queue;
+  SB20Model                     *model = nullptr;
+  BLEClient                     *client = nullptr;
+  BLERemoteService              *service = nullptr;
+  BLEAdvertisedDevice           *probe_device = nullptr;
 
-  public:
-    SB20ConnectorListener(SB20Connector *connector) : connector(connector) {
-    }
+  std::set<std::string>          blacklist;
+  std::string                    device;
+  BLERemoteCharacteristic       *command = nullptr;
+  BLERemoteCharacteristic       *status = nullptr;
+  SB20Error                      error_code = NoError;
+  unsigned long                  connect_time = 0L;
+  unsigned long                  last_contact = millis();
+  unsigned long                  last_shift = 0L;
 
-    virtual ~SB20ConnectorListener() = default;
-
-    void onDialogComplete() {
-      connector -> dialog_complete();
-      this -> connector -> erase_message();
-      this -> notify_complete();
-    }
-
-    void notify_complete() { }
-  };
-
-  std::deque<Bytes>         msg_queue;
-  SB20Model                *model;
-  BLEClient                *client;
-  BLERemoteService         *service;
-  BLEAdvertisedDevice      *probe_device;
-
-  std::set<std::string>     blacklist;
-  std::string               device;
-  BLERemoteCharacteristic  *command;
-  BLERemoteCharacteristic  *status;
-  ChallengeDialog          *dialog;
-  ChallengeDialogListener  *listener;
-  SB20Error                 error_code;
-  unsigned long             connect_time;
-  unsigned long             last_contact;
-  unsigned long             last_shift;
+  bool                           is_waiting = false;
+  std::deque<ChallengeDialog *>  dialogs;
+  ChallengeDialog               *current_dialog = nullptr;
+  Challenge                      waiting_for;
 
   explicit SB20Connector(SB20Model *);
 
   bool          send_command(const Bytes &);
   bool          probe();
   bool          bootstrap();
-  bool          start_dialog(ChallengeDialogListener *, const challenge_data *);
-  void          dialog_complete();
+  bool          add_dialog(const challenge_data *);
 
   void display_message(const char *msg) {
-    this -> model -> display_message(msg);
+    model -> display_message(msg);
   }
 
   void erase_message() {
-    this -> model -> display_message(nullptr);
+    model -> erase_message();
   }
 
   static SB20Connector * singleton;
@@ -107,7 +93,7 @@ public:
   unsigned long connected_since() const;
   SB20Error     get_error_code();
 
-  bool          send_challenge(const Bytes &);
+  bool          send_challenge();
   bool          push_message(uint8_t *, int);
   bool          ping();
 
@@ -118,36 +104,13 @@ public:
 
   void          onConnect(BLEClient *);
   void          onDisconnect(BLEClient *);
+  bool          onResponse(Bytes &);
 
   bool          blacklisted(const std::string &);
   void          onResult(BLEAdvertisedDevice);
 
-  constexpr static challenge_data bootstrap_data[] = {
-    { { 0x02, 0x08, 0x00 }, { { 0x02, 0x08, 0x00 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x01 }, { { 0x03, 0x0c, 0x00, 0x01 }, { 0x00 } } },
-    { { 0x04, 0x0a, 0x00, 0x00, 0x00 }, { { 0x02, 0x0a, 0x01 }, { 0x00 } } },
-    { { 0x02, 0x0d, 0x02 }, { { 0x02, 0x0d, 0x02 }, { 0x00 } } },
-    { { 0x02, 0x0d, 0x04 }, { { 0x02, 0x0d, 0x04 }, { 0x00 } } },
-    { { 0x02, 0x0e, 0x00 }, { { 0x02, 0x0e, 0x00 }, { 0x00 } } },
-    { { 0x02, 0x08, 0x00 }, { { 0x02, 0x08, 0x00 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x01 }, { { 0x03, 0x0c, 0x00, 0x01 }, { 0x00 } } },
-    { { 0x11, 0x0b, 0x00, 0x04, 0x04, 0x02, 0x03, 0x03, 0x01, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x00 }, { { 0x02, 0x0b, 0x00 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x03, 0x10, 0x00, 0x01 }, { { 0x03, 0x10, 0x00, 0x01 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x08, 0x0c, 0x00, 0x02, 0x05, 0x01, 0xc8, 0x00, 0x01 }, { { 0x02, 0x05, 0x01 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x02 }, { { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x0b, 0x0c, 0x02, 0x00, 0x00, 0x02, 0x0c, 0x10, 0x00, 0x03, 0x0e, 0x00 }, { { 0x02, 0x0c, 0x02 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x02 }, { { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x10, 0x0c, 0x03, 0x22, 0x32, 0x21, 0x1c, 0x18, 0x15, 0x13, 0x11, 0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a }, { { 0x00 } } },
-    { { 0x0b, 0x0c, 0x02, 0x0b, 0x00, 0x02, 0x0c, 0x10, 0x00, 0x03, 0x0e, 0x00 }, { { 0x02, 0x0c, 0x02 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x02, 0xfd, 0x00 }, { { 0x02, 0xfd, 0x01 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x06, 0x03, 0x01, 0x4c, 0x1d, 0x00, 0x00 }, { { 0x02, 0x03, 0x01 }, { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x02 }, { { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x02 }, { { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x03, 0x0c, 0x00, 0x02 }, { { 0x02, 0x0c, 0x01 }, { 0x00 } } },
-    { { 0x00 }, { { 0x00 } } }
-  };
-
-  constexpr static challenge_data ping_data[] = { { 0x02, 0x0d, 0x04 }, { { 0x02, 0x0d, 0x04 }, { 0x00 } } };
+  static challenge_data bootstrap_data[];
+  static challenge_data ping_data[];
 };
 
 #endif /* __CONNECTOR_H__ */

@@ -1,5 +1,8 @@
 #include <bytes.h>
 
+Bytes::Bytes() : sz(0), array(nullptr) {
+}
+
 Bytes::Bytes(const Bytes &src) : sz(0), array(nullptr) {
   assign(src.size(), src.bytes());
 }
@@ -13,31 +16,40 @@ Bytes::Bytes(uint8_t sz, const uint8_t *src) : sz(0), array(nullptr) {
 }
 
 Bytes::~Bytes() {
-  delete array;
+  delete[] array;
+}
+
+void Bytes::copy(const Bytes &other) {
+  assign(other.size(), other.array);
 }
 
 void Bytes::assign(uint8_t num, const uint8_t *src) {
   this -> sz = num;
+  delete[] array;
   if (num) {
     array = new uint8_t[num];
-    for (int ix = 0; ix < num; ix++) {
-      array[ix + 1] = src[ix];
-    }
+    memcpy(array, src, num);
   }
+#ifdef BYTES_DEBUG
+  Serial.print("Copied Bytes ");
+  hex_dump_nl();
+#endif
 }
 
 const uint8_t * Bytes::bytes() const {
   return array;
 }
 
-void Bytes::hex_dump() const {
-  if (!array) {
-    Serial.print(" (empty)");
+void Bytes::hex_dump(const uint8_t *data, size_t length) {
+  if (!data) {
+    Serial.print(" (null)");
+  } else if (!length) {
+    Serial.print(" (zero length)");
   } else {
-    Serial.printf("%3d:", size());
-    for (int ix = 0; ix < size(); ix++) {
-      Serial.printf(" %02x", this -> bytes()[ix]);
+    for (int ix = 0; ix < length; ix++) {
+      Serial.printf(" %02x", data[ix]);
     }
+    Serial.printf(" (%d bytes)", length);
   }
 }
 

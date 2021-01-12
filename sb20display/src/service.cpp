@@ -2,14 +2,19 @@
 
 #include "service.h"
 
+ConfigService * ConfigService::singleton = nullptr;
+
 ConfigService::ConfigService(SB20Model *model) : model(model) {
+  Serial.println("ConfigService created");
 }
 
 ConfigService::~ConfigService() {
 }
 
 void ConfigService::onSetup(void) {
+  Serial.println("Initializing ConfigService");
   server = BLEDevice::createServer();
+  Serial.println("Server object created");
   service = server->createService(config_service);
   Serial.println("Server side BLE service created");
 
@@ -52,6 +57,7 @@ void ConfigService::onSetup(void) {
   advertising -> setMinPreferred(0x12);
   BLEDevice::startAdvertising();
   Serial.println("BLE service advertised");
+  Serial.println("ConfigService Initialized");
 }
 
 void ConfigService::assignCharacteristics() {

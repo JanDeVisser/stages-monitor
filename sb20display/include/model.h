@@ -7,12 +7,15 @@
 
 #include "listeners.h"
 
+//#define MODEL_DEBUG
+
 struct Configuration {
   uint8_t      num_chainrings;
   uint8_t     *chainrings;
   uint8_t      num_cogs;
   uint8_t     *cogs;
   std::string  uuid;
+  int          loaded;
   
   Configuration & operator = (const Configuration &rhs) {
     if (&rhs != this) {
@@ -30,7 +33,7 @@ struct Configuration {
   } 
 };
 
-class SB20Model : public ResponseListener, public Sender {
+class SB20Model : public ResponseListener, public Sender<ModelListener> {
 private:
   Configuration      config;
   uint8_t            cur_chainring;
@@ -39,8 +42,11 @@ private:
   static SB20Model  *singleton;
 
   SB20Model();
+  static void        erase_config();
   void               read_config();
   void               write_config() const;
+
+  void               dump() const;
 
 public:
   static SB20Model * instance() {
@@ -75,7 +81,13 @@ public:
 
   bool                  onResponse(Bytes &);
 
-  constexpr static uint8_t gear_change_prefix[] = { 3, 0x0c, 0x01, 0x00 };
+  std::string           toString() {
+    return "SB20 Model";
+  }
+
+  void erase_message() const {
+    display_message(nullptr);
+  }
 };
 
 #endif /* __MODEL_H__ */

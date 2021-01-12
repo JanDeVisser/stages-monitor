@@ -7,10 +7,11 @@
 
 #include "listeners.h"
 
+//#define CHALLENGE_DEBUG
 
 struct challenge_data {
   uint8_t   challenge[32];
-  uint8_t   responses[32][8];
+  uint8_t   responses[8][32];
 };
 
 
@@ -18,54 +19,61 @@ class Challenge {
 private:
   Bytes              _challenge;
   std::vector<Bytes> _responses;
-
-protected:
-  void dump(const std::string &);
+  void               copy(const Challenge &);
 
 public:
-  explicit Challenge(const challenge_data *);
+  Challenge();
+  Challenge(const Challenge &);
+  explicit Challenge(const challenge_data &);
   virtual ~Challenge();
 
-  const Bytes &   challenge();
-  const Bytes &   response(unsigned int);
-  unsigned int    responses();
-  bool            match(Bytes &);
+  const Bytes &   challenge() const;
+  const Bytes &   response(unsigned int) const;
+  unsigned int    responses() const;
+  bool            match(Bytes &) const;
+  void            dump(const std::string &) const;
+
+  Challenge & operator = (const Challenge &rhs) {
+    if (&rhs != this) {
+      copy(rhs);
+    }
+    return *this;
+  }
+
 };
 
-class ChallengeDialogListener : public Listener {
+class ChallengeDialog : public ResponseListener {
+private:
+  std::deque<Challenge>     challenges;
+  Sender<ResponseListener> *owner;
+  Challenge                 waiting_for;
+  bool                      is_waiting = false;
+
 public:
-  virtual ~ChallengeDialogListener() = default;
+  explicit ChallengeDialog(Sender<ResponseListener> *);
+  virtual ~ChallengeDialog();
+
+  void add_challenge(const Challenge &);
+  void add_challenges(const challenge_data *);
+
+  bool exhausted() {
+    return challenges.empty();
+  }
+
+  Challenge pop() {
+    Challenge ret = challenges.front();
+    challenges.pop_front();
+    return ret;
+  }
+
+  size_t size() {
+    return challenges.size();
+  }
+
   virtual void onDialogStart() { };
   virtual void onChallengeSent(Challenge *) { };
   virtual void onResponseReceived(Challenge *, Bytes &) { };
   virtual void onDialogComplete() { };
-};
-
-
-class ChallengeDialogConnector : public Sender {
-public:
-  virtual bool send_challenge(const Bytes &) = 0;
-};
-
-
-class ChallengeDialog : public ResponseListener {
-private:
-  std::deque<Challenge *>   challenges;
-  ChallengeDialogListener  *listener;
-  ChallengeDialogConnector *connector;
-  Challenge                *waiting_for;
-
-  bool send_challenge(void);
-  
-public:
-  ChallengeDialog(ChallengeDialogConnector *, ChallengeDialogListener *);
-  virtual ~ChallengeDialog();
-
-  void add_challenge(Challenge *);
-  void add_challenges(const challenge_data *);
-  bool onResponse(Bytes &);
-  void start(void);
-  bool done(void) { return this -> waiting_for == nullptr; }
 };
 
 #endif /* __CHALLENGE_H__ */

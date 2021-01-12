@@ -10,6 +10,10 @@
 class Listener {
 public:
   virtual ~Listener() { };
+
+  virtual std::string toString() {
+    return std::string("toString not implemented");
+  }
 };
 
 class ModelListener : public Listener {
@@ -28,14 +32,16 @@ public:
 };
 
 
-class Sender {
+template<class L> class Sender {
 protected:
-  std::vector<Listener *>  listeners;
+  std::vector<L *>  listeners;
+
+  Sender() : listeners() {  }
 
 public:
   virtual ~Sender() { }
 
-  virtual void add_listener(Listener *listener) {
+  virtual void add_listener(L *listener) {
     for (int ix = 0; ix < listeners.size(); ix++) {
       if (listeners[ix] == listener) {
         return;
@@ -44,7 +50,7 @@ public:
     listeners.push_back(listener);
   }
 
-  virtual void remove_listener(Listener *listener) {
+  virtual void remove_listener(L *listener) {
     for (int ix = 0; ix < listeners.size(); ix++) {
       if (listeners[ix] == listener) {
         listeners.erase(listeners.begin() + ix);

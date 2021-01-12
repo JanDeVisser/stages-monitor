@@ -7,6 +7,8 @@
 
 #include "model.h"
 
+//#define SERVICE_DEBUG
+
 class ConfigService : public BLECharacteristicCallbacks, public ModelListener {
 private:
   SB20Model         *model;
