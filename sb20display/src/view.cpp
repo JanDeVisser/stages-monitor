@@ -72,7 +72,7 @@ void SB20HeltecView::display() {
     Heltec.display -> setFont(ArialMT_Plain_16);
     Heltec.display -> setTextAlignment(TEXT_ALIGN_LEFT);
     char rpm_str[10];
-    itoa(model() -> rpm(), rpm_str, 10);
+    snprintf(rpm_str, 10, "%d rpm", model() -> rpm());
     Heltec.display -> drawString(this -> width / 2, 16, rpm_str);
   }
 
