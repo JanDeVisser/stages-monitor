@@ -2,7 +2,6 @@
 #include "Preferences.h"
 
 #include "model.h"
-#include "service.h"
 
 SB20Model * SB20Model::singleton = nullptr;
 
@@ -109,6 +108,34 @@ uint8_t SB20Model::current_cog() const {
   return this -> cur_cog;
 }
 
+void SB20Model::update_cadence(uint16_t crank_revs, uint16_t crank_ev) {
+  uint16_t diff_ev = (last_crank_ev > crank_ev)
+                     ? ((uint16_t) 0xffff - last_crank_ev) + crank_ev + 1
+                     : crank_ev - last_crank_ev;
+  uint16_t diff_revs = (last_cum_crank_revs > crank_revs)
+                       ? ((uint16_t) 0xffff - last_cum_crank_revs) + crank_revs + 1
+                       : crank_revs - last_cum_crank_revs;
+#ifdef MODEL_DEBUG
+  Serial.printf("revs: %d timestamp: %d diff_ts: %d diff_revs: %d",
+    crank_revs, crank_ev, diff_ev, diff_revs);
+#endif
+  last_crank_ev = crank_ev;
+  last_cum_crank_revs = crank_revs;
+
+  if (diff_ev != 0) {
+    cur_cadence = roundf(((float) diff_revs) / ((float) diff_ev / (1024 * 60)));
+#ifdef MODEL_DEBUG
+    Serial.printf(" Cadence: %d RPM\n", cur_cadence);
+  } else {
+    Serial.println();
+#endif
+  }
+  for (std::vector<ModelListener *>::iterator it = this -> listeners.begin(); it != this -> listeners.end(); it++) {
+    (*it) -> onRefresh();
+  }
+}
+
+
 bool SB20Model::configuration(const Configuration &newConfig) {
   config = newConfig;
   write_config();
@@ -123,7 +150,7 @@ void SB20Model::gear_change(uint8_t new_chainring, uint8_t new_cog) {
     this -> cur_chainring = new_chainring;
     this -> cur_cog = new_cog;
     for (std::vector<ModelListener *>::iterator it = this -> listeners.begin(); it != this -> listeners.end(); it++) {
-      (*it) -> onGearChange();
+      (*it)->onRefresh();
     }
   }
 }
@@ -157,8 +184,15 @@ void SB20Model::onSetup() {
 
 void SB20Model::onLoop() {
   for (std::vector<ModelListener *>::iterator it = this -> listeners.begin(); it != this -> listeners.end(); it++) {
+#ifdef MODEL_DEBUG
+    Serial.print("onLoop ");
+    Serial.println((*it) -> toString().c_str());
+#endif
     (*it) -> onLoop();
   }
+#ifdef MODEL_DEBUG
+  Serial.println("onLoop done");
+#endif
 }
 
 bool SB20Model::onResponse(Bytes &response) {

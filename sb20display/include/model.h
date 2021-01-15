@@ -38,6 +38,9 @@ private:
   Configuration      config;
   uint8_t            cur_chainring;
   uint8_t            cur_cog;
+  uint16_t           last_cum_crank_revs = 0;
+  uint16_t           last_crank_ev = 0;
+  uint16_t           cur_cadence = 0;
 
   static SB20Model  *singleton;
 
@@ -68,9 +71,11 @@ public:
   uint8_t               cog(int) const;
   uint8_t               current_chainring() const;
   uint8_t               current_cog() const;
+  uint16_t              rpm() const { return cur_cadence; }
   const std::string &   uuid() const { return config.uuid; }
 
   void                  gear_change(uint8_t, uint8_t);
+  void                  update_cadence(uint16_t, uint16_t);
   void                  uuid(const std::string &);
   bool                  configuration(const Configuration &);
   const Configuration & configuration() const { return config; }

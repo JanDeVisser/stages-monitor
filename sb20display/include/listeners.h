@@ -22,7 +22,7 @@ public:
   virtual void onSetup() { };
   virtual void onLoop() { };
   virtual void onModelUpdate() { };
-  virtual void onGearChange() { };
+  virtual void onRefresh() { };
   virtual void onDisplayMessage(const char *msg) { };
 };
 

@@ -12,7 +12,17 @@ static void notifyCallback(BLERemoteCharacteristic *characteristic, uint8_t *dat
   }
 }
 
-SB20Connector::SB20Connector(SB20Model *model) : 
+static void speedCadenceCallback(BLERemoteCharacteristic *characteristic, uint8_t *data, size_t length, bool isNotify) {
+#ifdef CONNECTOR_DEBUG
+  Serial.print("Incoming Speed/Cadence Message: ");
+  Bytes::hex_dump_nl(data, length);
+#endif
+  if (SB20Connector::instance() != nullptr) {
+    SB20Connector::instance() -> cadence_message(data);
+  }
+}
+
+SB20Connector::SB20Connector(SB20Model *model) :
     msg_queue(),
     model(model),
     blacklist(),
@@ -122,9 +132,39 @@ bool SB20Connector::is_sb20() {
   if (status -> canNotify()) {
     status -> registerForNotify(notifyCallback);
   }
+
+  this -> sc_service = client -> getService(BLEUUID(speed_cadence_service));
+  if (!sc_service) {
+    this -> error_code = NoError;
+#ifdef CONNECTOR_DEBUG
+    Serial.println("Remote does not have the Speed/Cadence Service");
+#endif
+    goto success;
+  }
+#ifdef CONNECTOR_DEBUG
+  Serial.println("Remote has the Speed/Cadence Service");
+#endif
+  speed_cadence = sc_service -> getCharacteristic(BLEUUID(speed_cadence_measurement));
+  if (!speed_cadence) {
+    this -> error_code = NoError;
+#ifdef CONNECTOR_DEBUG
+    Serial.println("Speed/Cadence characteristic not found");
+#endif
+    goto success;
+  }
+
+  if (speed_cadence -> canNotify()) {
+    speed_cadence -> registerForNotify(speedCadenceCallback);
+  }
+
+
+
+
+success:
 #ifdef CONNECTOR_DEBUG
   Serial.println("Connector set up");
 #endif
+
   this -> connect_time = this -> last_contact = this -> last_shift = millis();
   this -> bootstrap();
   ret = true;
@@ -238,6 +278,14 @@ bool SB20Connector::push_message(uint8_t *data, int length) {
 //  msg.hex_dump_nl();
 //#endif
   msg_queue.push_back(msg);
+  return true;
+}
+
+bool SB20Connector::cadence_message(const uint8_t *data) {
+  uint16_t crank_revs = data[1] + (((uint16_t) data[2]) << 8);
+  uint16_t last_ev = data[3] + (((uint16_t) data[4]) << 8);
+  Serial.printf("SB20Connector::cadence_message: crank_revs = %d last_ev = %d\n", crank_revs, last_ev);
+  model -> update_cadence(crank_revs, last_ev);
   return true;
 }
 
@@ -377,7 +425,7 @@ void SB20Connector::onModelUpdate() {
   // Send new gearing model to SB20.
 }
 
-void SB20Connector::onGearChange() {
+void SB20Connector::onRefresh() {
   this -> last_shift = millis();
 }
 

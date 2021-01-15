@@ -59,7 +59,7 @@ public:
   explicit SB20HeltecView(SB20Model *);
   virtual ~SB20HeltecView() { };
 
-  void    onGearChange();
+  void    onRefresh();
   void    onSetup();
 
   void    display_message(const char *);

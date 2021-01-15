@@ -25,7 +25,7 @@ SB20HeltecView::SB20HeltecView(SB20Model *model) : SB20View(model) {
 #endif
 }
 
-void SB20HeltecView::onGearChange() {
+void SB20HeltecView::onRefresh() {
   this -> redisplay = true;
 }
 
@@ -68,6 +68,12 @@ void SB20HeltecView::display() {
     Heltec.display -> setFont(ArialMT_Plain_10);
     Heltec.display -> setTextAlignment(TEXT_ALIGN_LEFT);
     Heltec.display -> drawString(this -> width / 2, 12, this -> message);
+  } else if ((model() -> rpm() > 30) && (model() -> rpm() < 200)) {
+    Heltec.display -> setFont(ArialMT_Plain_16);
+    Heltec.display -> setTextAlignment(TEXT_ALIGN_LEFT);
+    char rpm_str[10];
+    itoa(model() -> rpm(), rpm_str, 10);
+    Heltec.display -> drawString(this -> width / 2, 16, rpm_str);
   }
 
   uint8_t x_inc = (uint8_t) (width  / (model() -> num_chainrings() + model() -> num_cogs() + 2));
